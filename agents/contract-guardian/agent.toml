@@ -1,0 +1,99 @@
+version = "1.0"
+
+[commands.contract-guardian]
+description = "Cross-repo contract guardian for OpenAPI/GraphQL/Protobuf/JSON schemas that detects breaking changes, generates client updates and contract tests, and raises PRs across affected repos."
+
+arguments = [
+    { name = "service_repo", type = "string", required = false, default = ".", description = "Path or URL of the service repo where the contract lives (local dir or https URL)" },
+    { name = "client_repos", type = "string", required = false, default = "", description = "Comma-separated list of local paths or Git URLs for client repos to validate/update" },
+    { name = "contract_path", type = "string", required = false, default = "openapi.yaml", description = "Path to contract file (e.g., openapi.yaml/json, schema.graphql, .proto, jsonschema.json)" },
+    { name = "base_branch", type = "string", required = false, default = "main", description = "Base branch used when creating feature branches and PRs" },
+    { name = "mode", type = "string", required = false, default = "analyze", description = "Run mode: analyze|update|ci. analyze=report only, update=propose fixes + PRs, ci=fails on breaking change" },
+    { name = "breaking_policy", type = "string", required = false, default = "semver", description = "Breaking change policy: semver|strict|lenient" },
+    { name = "languages", type = "string", required = false, default = "ts,java,python", description = "Comma-separated languages to attempt client updates for (heuristics)" },
+    { name = "dry_run", type = "boolean", required = false, default = true, description = "If true, do not push branches or create PRs" },
+    { name = "create_contract_tests", type = "boolean", required = false, default = true, description = "Generate or update contract tests for clients" },
+    { name = "pr_labels", type = "string", required = false, default = "contract,automation", description = "Comma-separated labels to add to PRs" },
+    { name = "github_org", type = "string", required = false, default = "", description = "Optional GitHub org/owner when using --client_repos by name only" }
+]
+
+tools = ["git", "filesystem", "shell", "github"]
+
+execution_strategy = "plan"
+
+mcpServers = """
+{
+  "shell": {
+    "command": "uvx",
+    "args": ["mcp-shell-server"],
+    "env": {
+      "ALLOW_COMMANDS": "env,ls,cat,pwd,rg,wc,touch,find,mkdir,rm,cp,mv,npm,npx,jest,mocha,ts-node,tsc,node,jq,echo,test,diff,sed,awk,git,cd,exit,yarn,grep,gh,curl"
+    }
+  },
+  "github": {
+    "url": "https://api.githubcopilot.com/mcp/",
+    "headers": {"Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"}
+  }
+}
+"""
+
+output_schema = """
+{
+  "type": "object",
+  "properties": {
+    "success": {"type": "boolean"},
+    "breaking_changes": {"type": "array", "items": {"type": "string"}},
+    "updated_clients": {"type": "array", "items": {"type": "string"}},
+    "created_prs": {"type": "array", "items": {"type": "string"}},
+    "report_path": {"type": "string"}
+  },
+  "required": ["success"]
+}
+"""
+
+exit_expression = "success"
+
+instructions = """
+You are Contract Guardian, a cross-repo contract enforcement agent. Your job is to:
+
+1) Discover and parse the service contract at `contract_path` in `service_repo`.
+   - Supported: OpenAPI (yaml/json), GraphQL SDL, Protobuf, JSON Schema.
+   - Generate a normalized contract model.
+
+2) Detect breaking changes compared to the base branch contract.
+   - Check removed/renamed endpoints, type changes, required field additions, enum removals, response code changes.
+   - Respect `breaking_policy`:
+     - semver: breaking only if major increment missing
+     - strict: any incompatible change is breaking
+     - lenient: warn but not fail for additive changes
+
+3) Identify impacted client repositories.
+   - Use `client_repos` (paths or Git URLs). If empty, scan monorepo workspaces for usage (import of generated clients, endpoints).
+   - For Git URLs, clone shallow to a temp directory.
+
+4) For each client repo:
+   - Validate compile- and type-level breakages with quick checks (grep/rg heuristics, TS/Java/Python builds where feasible).
+   - If `create_contract_tests` is true, generate or update lightweight contract tests:
+     - OpenAPI: smoke tests via supertest/pytest/httpx hitting mocked server or schema-based stubs.
+     - GraphQL: introspection-based query validation.
+     - Protobuf: encode/decode roundtrip for changed messages.
+   - Attempt targeted updates (best-effort): rename fields, update required args, adjust enums, bump generated SDKs.
+   - Stage changes and produce a readable diff.
+
+5) In `update` mode:
+   - Create a feature branch: `chore/contract-guardian/<date>-<short-hash>`
+   - Commit changes with clear messages summarizing contract deltas.
+   - If `dry_run` is false, push and open a PR with labels from `pr_labels` and a templated description including the report.
+
+6) In `ci` mode:
+   - Exit non-zero (success=false) on breaking changes; attach the report path in outputs.
+
+7) Output a machine-readable JSON report with detected breaking changes, updated clients, and PR links.
+
+Guidelines:
+- Never rewrite unrelated files. Keep diffs surgical and well-documented.
+- If a repo cannot be updated automatically, open an issue or draft PR with instructions.
+- Always respect existing linters/formatters by invoking project scripts when available.
+"""
+
+

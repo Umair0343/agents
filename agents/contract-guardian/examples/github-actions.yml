@@ -1,0 +1,33 @@
+name: Contract Guardian
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  contract-guardian:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install Qodo Command
+        run: npm install -g @qodo/command
+      - name: Analyze contracts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          qodo contract-guardian \
+            --agent-file=agents/contract-guardian/agent.toml \
+            --service_repo=. \
+            --contract_path=openapi.yaml \
+            --mode=ci || echo "Contract changes found; see report"
+
+

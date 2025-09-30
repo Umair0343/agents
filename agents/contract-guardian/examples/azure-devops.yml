@@ -1,0 +1,21 @@
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '18.x'
+  - script: npm i -g @qodo/command
+    displayName: Install Qodo Command
+  - script: |
+      qodo contract-guardian \
+        --agent-file=agents/contract-guardian/agent.toml \
+        --service_repo=. \
+        --contract_path=openapi.yaml \
+        --mode=ci
+    displayName: Run Contract Guardian
+
+

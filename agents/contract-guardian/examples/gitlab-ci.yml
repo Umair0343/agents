@@ -1,0 +1,12 @@
+stages: [contract]
+
+contract_guardian:
+  stage: contract
+  image: node:18
+  script:
+    - npm i -g @qodo/command
+    - qodo contract-guardian --agent-file=agents/contract-guardian/agent.toml --service_repo=. --contract_path=openapi.yaml --mode=ci
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+
